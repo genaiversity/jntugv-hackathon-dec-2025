@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard | SMS Gateway</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>📩 SMS Admin</h2>
+    <ul>
+        <li onclick="showSection('classify')">Classify SMS</li>
+        <li onclick="showSection('stats')">Statistics</li>
+        <li onclick="showSection('logs')">Message Logs</li>
+        <li onclick="logout()">Logout</li>
+    </ul>
+</div>
+
+<div class="main-content">
+
+    <!-- Classify SMS -->
+    <div id="classify" class="section">
+        <h2>Classify SMS</h2>
+        <textarea id="smsText" placeholder="Enter SMS message..."></textarea>
+        <button onclick="classifySMS()">Classify</button>
+        <div id="resultBox"></div>
+    </div>
+
+    <!-- Statistics -->
+    <div id="stats" class="section hidden">
+        <h2>Spam/Ham Statistics</h2>
+        <div class="card spam">Spam Messages: <span id="spamCount">120</span></div>
+        <div class="card ham">Ham Messages: <span id="hamCount">380</span></div>
+    </div>
+
+    <!-- Logs -->
+    <div id="logs" class="section hidden">
+        <h2>Message Logs</h2>
+        <table>
+            <tr>
+                <th>Message</th>
+                <th>Result</th>
+                <th>Confidence</th>
+            </tr>
+            <tr>
+                <td>Win a free recharge!</td>
+                <td>Spam</td>
+                <td>96%</td>
+            </tr>
+            <tr>
+                <td>Your OTP is 453221</td>
+                <td>Ham</td>
+                <td>98%</td>
+            </tr>
+        </table>
+    </div>
+
+</div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
