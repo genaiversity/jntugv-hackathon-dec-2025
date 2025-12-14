@@ -1,0 +1,1 @@
+Conversations and suggestions: https://chatgpt.com/g/g-p-693988665e54819187dcb5f460941eca-homework/project

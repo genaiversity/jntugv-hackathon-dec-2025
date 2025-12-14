@@ -1,0 +1,3077 @@
+im using lm studio and the model is mistral-7b-instruct-v0.2
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\app\llm.py**
+```
+import httpx
+from typing import Optional
+from .config import get_settings
+
+settings = get_settings()
+
+
+async def call_llm(
+    prompt: str,
+    model: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 4096
+) -> str:
+    """
+    Call local LLM via Ollama API.
+    Resource-efficient: only one model loaded at a time.
+    """
+    model = model or settings.primary_model
+    
+    messages = []
+    # Combine system prompt with user prompt since some models don't support system role
+    if system_prompt:
+        combined_prompt = f"{system_prompt}\n\n{prompt}"
+        messages.append({"role": "user", "content": combined_prompt})
+    else:
+        messages.append({"role": "user", "content": prompt})
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    }
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        try:
+            response = await client.post(
+                f"{settings.lm_studio_base_url}/chat/completions",
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except httpx.HTTPError as e:
+            raise Exception(f"LLM call failed: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Unexpected error calling LLM: {str(e)}")
+
+
+async def call_primary_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+    """Use primary model (Llama 3.1) for product/business content."""
+    return await call_llm(prompt, model=settings.primary_model, system_prompt=system_prompt)
+
+
+async def call_coder_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+    """Use coder model (Qwen2.5 Coder) for technical/code content."""
+    return await call_llm(prompt, model=settings.coder_model, system_prompt=system_prompt)
+
+
+async def check_ollama_status() -> dict:
+    """Check if Ollama is running and which models are available."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(f"{settings.ollama_base_url}/api/tags")
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return {
+                "status": "online",
+                "models": [m.get("name") for m in models],
+                "primary_model": settings.primary_model,
+                "coder_model": settings.coder_model
+            }
+        except Exception as e:
+            return {
+                "status": "offline",
+                "error": str(e),
+                "models": []
+            }
+
+```
+
+
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\app\config.py**
+```
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    lm_studio_base_url: str = "http://192.168.56.1:1234/v1"
+    primary_model: str = "mistral-7b-instruct-v0.2"
+    coder_model: str = "mistral-7b-instruct-v0.2"
+    database_url: str = "sqlite:///./innovation_hub.db"
+    debug: bool = True
+
+    class Config:
+        env_file = ".env"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
+
+```
+
+
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\BACKEND_DOCS.md**
+```
+# AI Innovation Hub Backend — Documentation
+
+FastAPI backend that orchestrates LLM calls and stores all project phases/artifacts.
+
+This document focuses on **env configuration**, **commands**, and **how the backend fits** into the system.
+
+---
+
+## 1. Overview
+
+The backend exposes a REST API that:
+
+- Manages **projects** and their **phases** (ideation → final_spec).
+- Calls local or remote **LLMs** to generate structured artifacts.
+- Stores everything in a **SQLite** database via SQLModel.
+- Supports **versioned artifacts** (multiple variants per artifact type).
+- Provides **export endpoints** to build markdown/PDF/DOCX specs.
+
+Core file structure:
+
+```text
+ai-innovation-hub-backend/
+├── app/
+│   ├── __init__.py
+│   ├── config.py       # Settings and env handling
+│   ├── database.py     # SQLite + Session management
+│   ├── models.py       # SQLModel ORM models
+│   ├── schemas.py      # Pydantic request/response models
+│   ├── llm.py          # LLM client (Ollama / remote)
+│   ├── prompts.py      # Phase-specific prompt templates
+│   ├── services.py     # Business logic, phase generation
+│   └── main.py         # FastAPI app & routes
+├── .env.example        # Example environment configuration
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 2. Environment Configuration
+
+Copy `.env.example` to `.env` and adjust as needed.
+
+```env
+# LLM Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+PRIMARY_MODEL=llama3.1
+CODER_MODEL=qwen2.5-coder:7b
+
+# Database
+DATABASE_URL=sqlite:///./innovation_hub.db
+
+# App Settings
+DEBUG=true
+```
+
+### 2.1 Variables Explained
+
+- **OLLAMA_BASE_URL**
+  - Base URL of the local Ollama server.
+  - Default when running `ollama serve` locally: `http://localhost:11434`.
+
+- **PRIMARY_MODEL**
+  - Main LLM used for product/UX/business content.
+  - Example: `llama3.1`.
+
+- **CODER_MODEL**
+  - Optional model used for more technical artifacts (e.g., `tech_stack`, `api_design`, `project_tasks`).
+  - Example: `qwen2.5-coder:7b`.
+  - If missing, backend can fall back to the primary model.
+
+- **DATABASE_URL**
+  - SQLModel connection string.
+  - Default: `sqlite:///./innovation_hub.db` (file in project root).
+
+- **DEBUG**
+  - Enables extra logging and potentially more verbose error messages.
+
+---
+
+## 3. Prerequisites
+
+- **Python** 3.10+
+- **Ollama** installed and running (for local models):
+
+```bash
+# Install Ollama from https://ollama.ai
+
+# Pull primary model
+ollama pull llama3.1
+
+# Pull coder model (optional)
+ollama pull qwen2.5-coder:7b
+```
+
+If you switch to another LLM provider (OpenAI, etc.), update `llm.py` and env accordingly.
+
+---
+
+## 4. Setup & Commands
+
+### 4.1 Create Virtual Environment & Install Deps
+
+```bash
+cd D:\Projects\ai-innovation-hub-backend
+
+# Create venv
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 4.2 Run LLM + API
+
+Start Ollama (if using local models):
+
+```bash
+ollama serve
+```
+
+Then, in another terminal:
+
+```bash
+cd D:\Projects\ai-innovation-hub-backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API will be available at:
+
+- Swagger UI: `http://localhost:8000/docs`
+- Root health/info: `http://localhost:8000/`
+
+---
+
+## 5. Key Endpoints (Cheat Sheet)
+
+### 5.1 Health
+
+```http
+GET /health
+```
+
+Check API + LLM connectivity.
+
+### 5.2 Projects
+
+```http
+POST   /projects                    # Create new project
+GET    /projects                    # List all projects
+GET    /projects/{id}               # Get project with phases + artifacts
+DELETE /projects/{id}               # Delete project & all related data
+```
+
+### 5.3 Phases & Generation
+
+```http
+GET  /projects/{id}/phases
+POST /projects/{id}/phases/{phase_type}/generate
+```
+
+`phase_type` in:
+
+- `ideation`
+- `concept_design`
+- `launch_content`
+- `validation`
+- `tech_build`
+- `final_spec`
+
+Example request body:
+
+```json
+{
+  "regenerate": false,
+  "custom_instructions": "Focus on mobile-first approach and student users"
+}
+```
+
+### 5.4 Artifacts
+
+```http
+GET /projects/{id}/artifacts   # List all artifacts for a project
+GET /artifacts/{id}            # Get a single artifact
+```
+
+### 5.5 Export
+
+- **Full project spec (all artifacts, latest versions):**
+
+  ```http
+  GET /projects/{id}/export           # JSON { project_id, format, content }
+  GET /projects/{id}/export-file     # ?format=markdown|pdf|docx
+  ```
+
+- **Final spec (selected variants + latest defaults):**
+
+  ```http
+  POST /projects/{id}/export-custom
+  ```
+
+  Example body:
+
+  ```json
+  {
+    "artifact_ids": [12, 25, 37],
+    "format": "pdf"
+  }
+  ```
+
+---
+
+## 6. Integration with Frontend
+
+- Frontend env: `NEXT_PUBLIC_API_URL` should point to this backend, e.g.:
+
+  ```env
+  NEXT_PUBLIC_API_URL=http://localhost:8000
+  ```
+
+- Frontend calls:
+  - `/projects` to list + create
+  - `/projects/{id}` to show detail & phases
+  - `/projects/{id}/phases/{phase_type}/generate` for generation
+  - `/projects/{id}/export*` endpoints for export flows
+
+---
+
+## 7. Troubleshooting
+
+- **LLM connection errors**
+  - Check `OLLAMA_BASE_URL` and that `ollama serve` is running.
+  - Confirm models are pulled (`ollama list`).
+
+- **Database issues**
+  - Delete `innovation_hub.db` if schema changed and you want a clean slate.
+  - Ensure the app has write permissions in the project directory.
+
+- **Slow generations**
+  - Models may be large; consider a smaller model or running on a stronger machine.
+  - Reduce prompt size or number of artifacts per phase in `prompts.py` / `services.py`.
+
+```
+
+
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\app\main.py**
+```
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select
+from contextlib import asynccontextmanager
+from typing import List
+from io import BytesIO
+import re
+import textwrap
+
+from .database import create_db_and_tables, get_session
+from .models import Project, Phase, Artifact, PhaseType
+from .schemas import (
+    ProjectCreate, ProjectResponse, ProjectDetailResponse,
+    PhaseResponse, ArtifactResponse,
+    GenerateRequest, GenerateResponse,
+    ExportCustomRequest,
+)
+from .services import (
+    create_project_phases, generate_phase_artifacts,
+    get_phase_by_type, get_all_artifacts
+)
+from .llm import check_ollama_status
+
+
+# --- Markdown helpers for export formatting ---
+
+def build_project_markdown(session: Session, project_id: int) -> tuple[Project, str]:
+    """Build a single markdown document for a project and all its artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    artifacts = get_all_artifacts(session, project_id)
+
+    markdown = f"# {project.name}\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in artifacts:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    return project, markdown
+
+
+def clean_inline_markdown(text: str) -> str:
+    """Remove common inline markdown markers like **bold**, *italic*, `code`, and links.
+
+    This is intentionally simple but good enough for export formatting.
+    """
+    # Strip backticks used for inline code
+    text = text.replace("`", "")
+    # Bold/italic markers
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"__(.*?)__", r"\1", text)
+    text = re.sub(r"\*(.*?)\*", r"\1", text)
+    text = re.sub(r"_(.*?)_", r"\1", text)
+    # Links: [label](url) -> label
+    text = re.sub(r"\[(.*?)\]\([^)]+\)", r"\1", text)
+    return text
+
+
+def iter_markdown_blocks(markdown: str):
+    """Very small markdown-to-blocks helper for headings & bullets.
+
+    Yields (text, kind) where kind is one of: h1, h2, h3, bullet, paragraph, blank.
+    """
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip("\n")
+        if not line.strip():
+            yield "", "blank"
+            continue
+
+        if line.startswith("# "):
+            yield clean_inline_markdown(line[2:].strip()), "h1"
+        elif line.startswith("## "):
+            yield clean_inline_markdown(line[3:].strip()), "h2"
+        elif line.startswith("### "):
+            yield clean_inline_markdown(line[4:].strip()), "h3"
+        elif re.match(r"^\s*[-*+]\s+", line):
+            text = re.sub(r"^\s*[-*+]\s+", "", line).strip()
+            yield clean_inline_markdown(text), "bullet"
+        elif re.match(r"^\s*\d+\.\s+", line):
+            m = re.match(r"^\s*(\d+)\.\s+(.*)", line)
+            if m:
+                numeric = m.group(1)
+                body = m.group(2).strip()
+                yield clean_inline_markdown(f"{numeric}. {body}"), "bullet"
+            else:
+                yield clean_inline_markdown(line.strip()), "paragraph"
+        else:
+            yield clean_inline_markdown(line.strip()), "paragraph"
+
+
+def markdown_to_pdf(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to a simple but structured PDF (headings/bullets)."""
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF export not available on server (missing reportlab dependency)",
+        )
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    x_margin = 72
+    y = height - 72
+    line_height = 16
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            # Add a little vertical space
+            y -= line_height // 2
+            continue
+
+        # Choose font based on block kind
+        if kind == "h1":
+            pdf.setFont("Helvetica-Bold", 18)
+            wrap_width = 60
+        elif kind == "h2":
+            pdf.setFont("Helvetica-Bold", 16)
+            wrap_width = 70
+        elif kind == "h3":
+            pdf.setFont("Helvetica-Bold", 14)
+            wrap_width = 80
+        else:
+            pdf.setFont("Helvetica", 11)
+            wrap_width = 95
+
+        prefix = ""
+        if kind == "bullet":
+            prefix = "• "
+
+        # Wrap long lines so they don't get cut off horizontally
+        wrapped_lines = textwrap.wrap(text, width=wrap_width) or [""]
+
+        for i, line in enumerate(wrapped_lines):
+            if y < 72:
+                pdf.showPage()
+                y = height - 72
+                # Re-apply font after new page
+                if kind == "h1":
+                    pdf.setFont("Helvetica-Bold", 18)
+                elif kind == "h2":
+                    pdf.setFont("Helvetica-Bold", 16)
+                elif kind == "h3":
+                    pdf.setFont("Helvetica-Bold", 14)
+                else:
+                    pdf.setFont("Helvetica", 11)
+
+            draw_text = f"{prefix}{line}" if i == 0 else f"  {line}" if kind == "bullet" else line
+            pdf.drawString(x_margin, y, draw_text[:1000])
+            y -= line_height
+
+    pdf.save()
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.pdf"',
+        },
+    )
+
+
+def markdown_to_docx(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to DOCX with headings and bullet lists."""
+    try:
+        from docx import Document
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="DOCX export not available on server (missing python-docx dependency)",
+        )
+
+    document = Document()
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            document.add_paragraph("")
+        elif kind == "h1":
+            document.add_heading(text, level=1)
+        elif kind == "h2":
+            document.add_heading(text, level=2)
+        elif kind == "h3":
+            document.add_heading(text, level=3)
+        elif kind == "bullet":
+            document.add_paragraph(text, style="List Bullet")
+        else:
+            document.add_paragraph(text)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.docx"',
+        },
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+
+app = FastAPI(
+    title="AI Innovation Hub",
+    description="Transform raw ideas into validated mini-startup concepts using local LLMs",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "AI Innovation Hub API",
+        "docs": "/docs",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    ollama_status = await check_ollama_status()
+    return {
+        "api": "healthy",
+        "llm": ollama_status
+    }
+
+
+# --- Project Endpoints ---
+
+@app.post("/projects", response_model=ProjectResponse)
+def create_project(
+    project_data: ProjectCreate,
+    session: Session = Depends(get_session)
+):
+    """Create a new project and initialize all phases."""
+    project = Project(**project_data.model_dump())
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    
+    # Create all phases for this project
+    create_project_phases(session, project)
+    
+    return project
+
+
+@app.get("/projects", response_model=List[ProjectResponse])
+def list_projects(session: Session = Depends(get_session)):
+    """List all projects."""
+    projects = session.exec(select(Project).order_by(Project.created_at.desc())).all()
+    return projects
+
+
+@app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
+def get_project(project_id: int, session: Session = Depends(get_session)):
+    """Get project with all phases and artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Load phases with artifacts
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact)
+            .where(Artifact.phase_id == phase.id)
+            .order_by(Artifact.artifact_type)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return ProjectDetailResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        user_type=project.user_type,
+        constraints=project.constraints,
+        skills=project.skills,
+        time_available=project.time_available,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        phases=phase_responses
+    )
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: int, session: Session = Depends(get_session)):
+    """Delete a project and all its phases/artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Delete artifacts first
+    phases = session.exec(select(Phase).where(Phase.project_id == project_id)).all()
+    for phase in phases:
+        artifacts = session.exec(select(Artifact).where(Artifact.phase_id == phase.id)).all()
+        for artifact in artifacts:
+            session.delete(artifact)
+        session.delete(phase)
+    
+    session.delete(project)
+    session.commit()
+    
+    return {"message": "Project deleted successfully"}
+
+
+# --- Phase Endpoints ---
+
+@app.get("/projects/{project_id}/phases", response_model=List[PhaseResponse])
+def list_phases(project_id: int, session: Session = Depends(get_session)):
+    """List all phases for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact).where(Artifact.phase_id == phase.id)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return phase_responses
+
+
+@app.post("/projects/{project_id}/phases/{phase_type}/generate", response_model=GenerateResponse)
+async def generate_phase(
+    project_id: int,
+    phase_type: PhaseType,
+    request: GenerateRequest = GenerateRequest(),
+    session: Session = Depends(get_session)
+):
+    """Generate artifacts for a specific phase using local LLM."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phase = get_phase_by_type(session, project_id, phase_type)
+    if not phase:
+        raise HTTPException(status_code=404, detail="Phase not found")
+    
+    # Generate artifacts
+    artifacts = await generate_phase_artifacts(
+        session=session,
+        project=project,
+        phase=phase,
+        regenerate=request.regenerate,
+        custom_instructions=request.custom_instructions
+    )
+    
+    # Refresh phase to get updated status
+    session.refresh(phase)
+    
+    return GenerateResponse(
+        phase=PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ),
+        artifacts=[ArtifactResponse.model_validate(a) for a in artifacts],
+        message=f"Generated {len(artifacts)} artifacts for {phase_type.value} phase"
+    )
+
+
+# --- Artifact Endpoints ---
+
+@app.get("/projects/{project_id}/artifacts", response_model=List[ArtifactResponse])
+def list_artifacts(project_id: int, session: Session = Depends(get_session)):
+    """List all artifacts for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifacts = get_all_artifacts(session, project_id)
+    return artifacts
+
+
+@app.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)
+def get_artifact(artifact_id: int, session: Session = Depends(get_session)):
+    """Get a specific artifact."""
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return artifact
+
+
+# --- Export Endpoints ---
+
+@app.get("/projects/{project_id}/export")
+def export_project(project_id: int, session: Session = Depends(get_session)):
+    """Export all project artifacts as a single markdown document.
+
+    This is primarily aimed at Notion-friendly markdown exports.
+    """
+    project, markdown = build_project_markdown(session, project_id)
+
+    return {
+        "project_id": project_id,
+        "format": "markdown",
+        "content": markdown,
+    }
+
+
+@app.get("/projects/{project_id}/export-file")
+def export_project_file(project_id: int, format: str = "pdf", session: Session = Depends(get_session)):
+    """Export full project spec as a downloadable file (markdown/PDF/DOCX)."""
+    project, markdown = build_project_markdown(session, project_id)
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_spec"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        buffer = BytesIO(markdown.encode("utf-8"))
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_filename}.md"',
+            },
+        )
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.post("/projects/{project_id}/export-custom")
+def export_project_custom(
+    project_id: int,
+    request: ExportCustomRequest,
+    session: Session = Depends(get_session),
+):
+    """Export a "final" spec using selected variants where provided, and
+    latest versions for all other artifact types.
+
+    - request.artifact_ids: explicit overrides (usually one per artifact_type)
+    - all other artifact types: use the latest version available for that type
+    """
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all artifacts for this project (ordered by phase + type)
+    all_artifacts = get_all_artifacts(session, project_id)
+    if not all_artifacts:
+        raise HTTPException(status_code=400, detail="No artifacts found for this project")
+
+    override_ids = set(request.artifact_ids or [])
+
+    # Step 1: decide which artifact to use per artifact_type
+    chosen_by_type: dict[str, Artifact] = {}
+    override_types: set[str] = set()
+
+    for artifact in all_artifacts:
+        key = artifact.artifact_type.value
+
+        # If this artifact is explicitly selected, prefer it for this type
+        if artifact.id in override_ids:
+            chosen_by_type[key] = artifact
+            override_types.add(key)
+            continue
+
+        # If this type already has an override, skip other versions
+        if key in override_types:
+            continue
+
+        # For non-overridden types, keep the latest version
+        existing = chosen_by_type.get(key)
+        if existing is None or artifact.version > existing.version:
+            chosen_by_type[key] = artifact
+
+    # Step 2: build a list of chosen artifacts preserving phase/type ordering
+    chosen_ids = {a.id for a in chosen_by_type.values()}
+    ordered_chosen = [a for a in all_artifacts if a.id in chosen_ids]
+
+    # Build markdown similar to the full export, but only for the chosen artifacts
+    markdown = f"# {project.name} - Final Spec\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in ordered_chosen:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_final_spec"
+
+    fmt = request.format.lower()
+
+    if fmt == "markdown":
+        return {
+            "project_id": project_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.get("/artifacts/{artifact_id}/export")
+def export_artifact(artifact_id: int, format: str = "markdown", session: Session = Depends(get_session)):
+    """Export a single artifact in markdown, PDF, or DOCX format.
+
+    - markdown: JSON response with a markdown string (Notion-friendly)
+    - pdf:      application/pdf binary stream
+    - docx:     application/vnd.openxmlformats-officedocument.wordprocessingml.document binary stream
+    """
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    phase = session.get(Phase, artifact.phase_id)
+    project = session.get(Project, phase.project_id) if phase else None
+
+    project_name = (project.name if project else "project").replace(" ", "_")
+    artifact_name = artifact.artifact_type.value.replace(" ", "_")
+    base_filename = f"{project_name}_{artifact_name}_v{artifact.version}"
+
+    header = f"{project.name if project else 'Project'} - {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})"
+    markdown = f"# {header}\n\n{artifact.content}\n"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        return {
+            "artifact_id": artifact_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+```
+
+
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\app\main.py**
+```
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select
+from contextlib import asynccontextmanager
+from typing import List
+from io import BytesIO
+import re
+import textwrap
+
+from .database import create_db_and_tables, get_session
+from .models import Project, Phase, Artifact, PhaseType
+from .schemas import (
+    ProjectCreate, ProjectResponse, ProjectDetailResponse,
+    PhaseResponse, ArtifactResponse,
+    GenerateRequest, GenerateResponse,
+    ExportCustomRequest,
+)
+from .services import (
+    create_project_phases, generate_phase_artifacts,
+    get_phase_by_type, get_all_artifacts
+)
+from .llm import check_ollama_status
+
+
+# --- Markdown helpers for export formatting ---
+
+def build_project_markdown(session: Session, project_id: int) -> tuple[Project, str]:
+    """Build a single markdown document for a project and all its artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    artifacts = get_all_artifacts(session, project_id)
+
+    markdown = f"# {project.name}\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in artifacts:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    return project, markdown
+
+
+def clean_inline_markdown(text: str) -> str:
+    """Remove common inline markdown markers like **bold**, *italic*, `code`, and links.
+
+    This is intentionally simple but good enough for export formatting.
+    """
+    # Strip backticks used for inline code
+    text = text.replace("`", "")
+    # Bold/italic markers
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"__(.*?)__", r"\1", text)
+    text = re.sub(r"\*(.*?)\*", r"\1", text)
+    text = re.sub(r"_(.*?)_", r"\1", text)
+    # Links: [label](url) -> label
+    text = re.sub(r"\[(.*?)\]\([^)]+\)", r"\1", text)
+    return text
+
+
+def iter_markdown_blocks(markdown: str):
+    """Very small markdown-to-blocks helper for headings & bullets.
+
+    Yields (text, kind) where kind is one of: h1, h2, h3, bullet, paragraph, blank.
+    """
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip("\n")
+        if not line.strip():
+            yield "", "blank"
+            continue
+
+        if line.startswith("# "):
+            yield clean_inline_markdown(line[2:].strip()), "h1"
+        elif line.startswith("## "):
+            yield clean_inline_markdown(line[3:].strip()), "h2"
+        elif line.startswith("### "):
+            yield clean_inline_markdown(line[4:].strip()), "h3"
+        elif re.match(r"^\s*[-*+]\s+", line):
+            text = re.sub(r"^\s*[-*+]\s+", "", line).strip()
+            yield clean_inline_markdown(text), "bullet"
+        elif re.match(r"^\s*\d+\.\s+", line):
+            m = re.match(r"^\s*(\d+)\.\s+(.*)", line)
+            if m:
+                numeric = m.group(1)
+                body = m.group(2).strip()
+                yield clean_inline_markdown(f"{numeric}. {body}"), "bullet"
+            else:
+                yield clean_inline_markdown(line.strip()), "paragraph"
+        else:
+            yield clean_inline_markdown(line.strip()), "paragraph"
+
+
+def markdown_to_pdf(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to a simple but structured PDF (headings/bullets)."""
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF export not available on server (missing reportlab dependency)",
+        )
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    x_margin = 72
+    y = height - 72
+    line_height = 16
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            # Add a little vertical space
+            y -= line_height // 2
+            continue
+
+        # Choose font based on block kind
+        if kind == "h1":
+            pdf.setFont("Helvetica-Bold", 18)
+            wrap_width = 60
+        elif kind == "h2":
+            pdf.setFont("Helvetica-Bold", 16)
+            wrap_width = 70
+        elif kind == "h3":
+            pdf.setFont("Helvetica-Bold", 14)
+            wrap_width = 80
+        else:
+            pdf.setFont("Helvetica", 11)
+            wrap_width = 95
+
+        prefix = ""
+        if kind == "bullet":
+            prefix = "• "
+
+        # Wrap long lines so they don't get cut off horizontally
+        wrapped_lines = textwrap.wrap(text, width=wrap_width) or [""]
+
+        for i, line in enumerate(wrapped_lines):
+            if y < 72:
+                pdf.showPage()
+                y = height - 72
+                # Re-apply font after new page
+                if kind == "h1":
+                    pdf.setFont("Helvetica-Bold", 18)
+                elif kind == "h2":
+                    pdf.setFont("Helvetica-Bold", 16)
+                elif kind == "h3":
+                    pdf.setFont("Helvetica-Bold", 14)
+                else:
+                    pdf.setFont("Helvetica", 11)
+
+            draw_text = f"{prefix}{line}" if i == 0 else f"  {line}" if kind == "bullet" else line
+            pdf.drawString(x_margin, y, draw_text[:1000])
+            y -= line_height
+
+    pdf.save()
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.pdf"',
+        },
+    )
+
+
+def markdown_to_docx(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to DOCX with headings and bullet lists."""
+    try:
+        from docx import Document
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="DOCX export not available on server (missing python-docx dependency)",
+        )
+
+    document = Document()
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            document.add_paragraph("")
+        elif kind == "h1":
+            document.add_heading(text, level=1)
+        elif kind == "h2":
+            document.add_heading(text, level=2)
+        elif kind == "h3":
+            document.add_heading(text, level=3)
+        elif kind == "bullet":
+            document.add_paragraph(text, style="List Bullet")
+        else:
+            document.add_paragraph(text)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.docx"',
+        },
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+
+app = FastAPI(
+    title="AI Innovation Hub",
+    description="Transform raw ideas into validated mini-startup concepts using local LLMs",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "AI Innovation Hub API",
+        "docs": "/docs",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    ollama_status = await check_ollama_status()
+    return {
+        "api": "healthy",
+        "llm": ollama_status
+    }
+
+
+# --- Project Endpoints ---
+
+@app.post("/projects", response_model=ProjectResponse)
+def create_project(
+    project_data: ProjectCreate,
+    session: Session = Depends(get_session)
+):
+    """Create a new project and initialize all phases."""
+    project = Project(**project_data.model_dump())
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    
+    # Create all phases for this project
+    create_project_phases(session, project)
+    
+    return project
+
+
+@app.get("/projects", response_model=List[ProjectResponse])
+def list_projects(session: Session = Depends(get_session)):
+    """List all projects."""
+    projects = session.exec(select(Project).order_by(Project.created_at.desc())).all()
+    return projects
+
+
+@app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
+def get_project(project_id: int, session: Session = Depends(get_session)):
+    """Get project with all phases and artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Load phases with artifacts
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact)
+            .where(Artifact.phase_id == phase.id)
+            .order_by(Artifact.artifact_type)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return ProjectDetailResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        user_type=project.user_type,
+        constraints=project.constraints,
+        skills=project.skills,
+        time_available=project.time_available,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        phases=phase_responses
+    )
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: int, session: Session = Depends(get_session)):
+    """Delete a project and all its phases/artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Delete artifacts first
+    phases = session.exec(select(Phase).where(Phase.project_id == project_id)).all()
+    for phase in phases:
+        artifacts = session.exec(select(Artifact).where(Artifact.phase_id == phase.id)).all()
+        for artifact in artifacts:
+            session.delete(artifact)
+        session.delete(phase)
+    
+    session.delete(project)
+    session.commit()
+    
+    return {"message": "Project deleted successfully"}
+
+
+# --- Phase Endpoints ---
+
+@app.get("/projects/{project_id}/phases", response_model=List[PhaseResponse])
+def list_phases(project_id: int, session: Session = Depends(get_session)):
+    """List all phases for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact).where(Artifact.phase_id == phase.id)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return phase_responses
+
+
+@app.post("/projects/{project_id}/phases/{phase_type}/generate", response_model=GenerateResponse)
+async def generate_phase(
+    project_id: int,
+    phase_type: PhaseType,
+    request: GenerateRequest = GenerateRequest(),
+    session: Session = Depends(get_session)
+):
+    """Generate artifacts for a specific phase using local LLM."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phase = get_phase_by_type(session, project_id, phase_type)
+    if not phase:
+        raise HTTPException(status_code=404, detail="Phase not found")
+    
+    # Generate artifacts
+    artifacts = await generate_phase_artifacts(
+        session=session,
+        project=project,
+        phase=phase,
+        regenerate=request.regenerate,
+        custom_instructions=request.custom_instructions
+    )
+    
+    # Refresh phase to get updated status
+    session.refresh(phase)
+    
+    return GenerateResponse(
+        phase=PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ),
+        artifacts=[ArtifactResponse.model_validate(a) for a in artifacts],
+        message=f"Generated {len(artifacts)} artifacts for {phase_type.value} phase"
+    )
+
+
+# --- Artifact Endpoints ---
+
+@app.get("/projects/{project_id}/artifacts", response_model=List[ArtifactResponse])
+def list_artifacts(project_id: int, session: Session = Depends(get_session)):
+    """List all artifacts for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifacts = get_all_artifacts(session, project_id)
+    return artifacts
+
+
+@app.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)
+def get_artifact(artifact_id: int, session: Session = Depends(get_session)):
+    """Get a specific artifact."""
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return artifact
+
+
+# --- Export Endpoints ---
+
+@app.get("/projects/{project_id}/export")
+def export_project(project_id: int, session: Session = Depends(get_session)):
+    """Export all project artifacts as a single markdown document.
+
+    This is primarily aimed at Notion-friendly markdown exports.
+    """
+    project, markdown = build_project_markdown(session, project_id)
+
+    return {
+        "project_id": project_id,
+        "format": "markdown",
+        "content": markdown,
+    }
+
+
+@app.get("/projects/{project_id}/export-file")
+def export_project_file(project_id: int, format: str = "pdf", session: Session = Depends(get_session)):
+    """Export full project spec as a downloadable file (markdown/PDF/DOCX)."""
+    project, markdown = build_project_markdown(session, project_id)
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_spec"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        buffer = BytesIO(markdown.encode("utf-8"))
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_filename}.md"',
+            },
+        )
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.post("/projects/{project_id}/export-custom")
+def export_project_custom(
+    project_id: int,
+    request: ExportCustomRequest,
+    session: Session = Depends(get_session),
+):
+    """Export a "final" spec using selected variants where provided, and
+    latest versions for all other artifact types.
+
+    - request.artifact_ids: explicit overrides (usually one per artifact_type)
+    - all other artifact types: use the latest version available for that type
+    """
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all artifacts for this project (ordered by phase + type)
+    all_artifacts = get_all_artifacts(session, project_id)
+    if not all_artifacts:
+        raise HTTPException(status_code=400, detail="No artifacts found for this project")
+
+    override_ids = set(request.artifact_ids or [])
+
+    # Step 1: decide which artifact to use per artifact_type
+    chosen_by_type: dict[str, Artifact] = {}
+    override_types: set[str] = set()
+
+    for artifact in all_artifacts:
+        key = artifact.artifact_type.value
+
+        # If this artifact is explicitly selected, prefer it for this type
+        if artifact.id in override_ids:
+            chosen_by_type[key] = artifact
+            override_types.add(key)
+            continue
+
+        # If this type already has an override, skip other versions
+        if key in override_types:
+            continue
+
+        # For non-overridden types, keep the latest version
+        existing = chosen_by_type.get(key)
+        if existing is None or artifact.version > existing.version:
+            chosen_by_type[key] = artifact
+
+    # Step 2: build a list of chosen artifacts preserving phase/type ordering
+    chosen_ids = {a.id for a in chosen_by_type.values()}
+    ordered_chosen = [a for a in all_artifacts if a.id in chosen_ids]
+
+    # Build markdown similar to the full export, but only for the chosen artifacts
+    markdown = f"# {project.name} - Final Spec\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in ordered_chosen:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_final_spec"
+
+    fmt = request.format.lower()
+
+    if fmt == "markdown":
+        return {
+            "project_id": project_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.get("/artifacts/{artifact_id}/export")
+def export_artifact(artifact_id: int, format: str = "markdown", session: Session = Depends(get_session)):
+    """Export a single artifact in markdown, PDF, or DOCX format.
+
+    - markdown: JSON response with a markdown string (Notion-friendly)
+    - pdf:      application/pdf binary stream
+    - docx:     application/vnd.openxmlformats-officedocument.wordprocessingml.document binary stream
+    """
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    phase = session.get(Phase, artifact.phase_id)
+    project = session.get(Project, phase.project_id) if phase else None
+
+    project_name = (project.name if project else "project").replace(" ", "_")
+    artifact_name = artifact.artifact_type.value.replace(" ", "_")
+    base_filename = f"{project_name}_{artifact_name}_v{artifact.version}"
+
+    header = f"{project.name if project else 'Project'} - {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})"
+    markdown = f"# {header}\n\n{artifact.content}\n"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        return {
+            "artifact_id": artifact_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+```
+
+
+
+
+_File edits failed: * Could not apply all diffs to D:\Projects\ai-innovation-hub-backend\BACKEND_DOCS.md.
+* D:\Projects\ai-innovation-hub-backend\llm.py does not exist. Is the path correct? _
+
+
+
+**Files Read:**
+
+**D:\Projects\ai-innovation-hub-backend\.env.example**
+```
+# LLM Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+PRIMARY_MODEL=llama3.1
+CODER_MODEL=qwen2.5-coder:7b
+
+# Database
+DATABASE_URL=sqlite:///./innovation_hub.db
+
+# App Settings
+DEBUG=true
+
+```
+
+**D:\Projects\ai-innovation-hub-backend\BACKEND_DOCS.md**
+```
+# AI Innovation Hub Backend — Documentation
+
+FastAPI backend that orchestrates LLM calls and stores all project phases/artifacts.
+
+This document focuses on **env configuration**, **commands**, and **how the backend fits** into the system.
+
+---
+
+## 1. Overview
+
+The backend exposes a REST API that:
+
+- Manages **projects** and their **phases** (ideation → final_spec).
+- Calls local or remote **LLMs** to generate structured artifacts.
+- Stores everything in a **SQLite** database via SQLModel.
+- Supports **versioned artifacts** (multiple variants per artifact type).
+- Provides **export endpoints** to build markdown/PDF/DOCX specs.
+
+Core file structure:
+
+```text
+ai-innovation-hub-backend/
+├── app/
+│   ├── __init__.py
+│   ├── config.py       # Settings and env handling
+│   ├── database.py     # SQLite + Session management
+│   ├── models.py       # SQLModel ORM models
+│   ├── schemas.py      # Pydantic request/response models
+│   ├── llm.py          # LLM client (Ollama / remote)
+│   ├── prompts.py      # Phase-specific prompt templates
+│   ├── services.py     # Business logic, phase generation
+│   └── main.py         # FastAPI app & routes
+├── .env.example        # Example environment configuration
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 2. Environment Configuration
+
+Copy `.env.example` to `.env` and adjust as needed.
+
+```env
+# LLM Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+PRIMARY_MODEL=llama3.1
+CODER_MODEL=qwen2.5-coder:7b
+
+# Database
+DATABASE_URL=sqlite:///./innovation_hub.db
+
+# App Settings
+DEBUG=true
+```
+
+### 2.1 Variables Explained
+
+- **OLLAMA_BASE_URL**
+  - Base URL of the local Ollama server.
+  - Default when running `ollama serve` locally: `http://localhost:11434`.
+
+- **PRIMARY_MODEL**
+  - Main LLM used for product/UX/business content.
+  - Example: `llama3.1`.
+
+- **CODER_MODEL**
+  - Optional model used for more technical artifacts (e.g., `tech_stack`, `api_design`, `project_tasks`).
+  - Example: `qwen2.5-coder:7b`.
+  - If missing, backend can fall back to the primary model.
+
+- **DATABASE_URL**
+  - SQLModel connection string.
+  - Default: `sqlite:///./innovation_hub.db` (file in project root).
+
+- **DEBUG**
+  - Enables extra logging and potentially more verbose error messages.
+
+---
+
+## 3. Prerequisites
+
+- **Python** 3.10+
+- **Ollama** installed and running (for local models):
+
+```bash
+# Install Ollama from https://ollama.ai
+
+# Pull primary model
+ollama pull llama3.1
+
+# Pull coder model (optional)
+ollama pull qwen2.5-coder:7b
+```
+
+If you switch to another LLM provider (OpenAI, etc.), update `llm.py` and env accordingly.
+
+---
+
+## 4. Setup & Commands
+
+### 4.1 Create Virtual Environment & Install Deps
+
+```bash
+cd D:\Projects\ai-innovation-hub-backend
+
+# Create venv
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 4.2 Run LLM + API
+
+Start Ollama (if using local models):
+
+```bash
+ollama serve
+```
+
+Then, in another terminal:
+
+```bash
+cd D:\Projects\ai-innovation-hub-backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API will be available at:
+
+- Swagger UI: `http://localhost:8000/docs`
+- Root health/info: `http://localhost:8000/`
+
+---
+
+## 5. Key Endpoints (Cheat Sheet)
+
+### 5.1 Health
+
+```http
+GET /health
+```
+
+Check API + LLM connectivity.
+
+### 5.2 Projects
+
+```http
+POST   /projects                    # Create new project
+GET    /projects                    # List all projects
+GET    /projects/{id}               # Get project with phases + artifacts
+DELETE /projects/{id}               # Delete project & all related data
+```
+
+### 5.3 Phases & Generation
+
+```http
+GET  /projects/{id}/phases
+POST /projects/{id}/phases/{phase_type}/generate
+```
+
+`phase_type` in:
+
+- `ideation`
+- `concept_design`
+- `launch_content`
+- `validation`
+- `tech_build`
+- `final_spec`
+
+Example request body:
+
+```json
+{
+  "regenerate": false,
+  "custom_instructions": "Focus on mobile-first approach and student users"
+}
+```
+
+### 5.4 Artifacts
+
+```http
+GET /projects/{id}/artifacts   # List all artifacts for a project
+GET /artifacts/{id}            # Get a single artifact
+```
+
+### 5.5 Export
+
+- **Full project spec (all artifacts, latest versions):**
+
+  ```http
+  GET /projects/{id}/export           # JSON { project_id, format, content }
+  GET /projects/{id}/export-file     # ?format=markdown|pdf|docx
+  ```
+
+- **Final spec (selected variants + latest defaults):**
+
+  ```http
+  POST /projects/{id}/export-custom
+  ```
+
+  Example body:
+
+  ```json
+  {
+    "artifact_ids": [12, 25, 37],
+    "format": "pdf"
+  }
+  ```
+
+---
+
+## 6. Integration with Frontend
+
+- Frontend env: `NEXT_PUBLIC_API_URL` should point to this backend, e.g.:
+
+  ```env
+  NEXT_PUBLIC_API_URL=http://localhost:8000
+  ```
+
+- Frontend calls:
+  - `/projects` to list + create
+  - `/projects/{id}` to show detail & phases
+  - `/projects/{id}/phases/{phase_type}/generate` for generation
+  - `/projects/{id}/export*` endpoints for export flows
+
+---
+
+## 7. Troubleshooting
+
+- **LLM connection errors**
+  - Check `OLLAMA_BASE_URL` and that `ollama serve` is running.
+  - Confirm models are pulled (`ollama list`).
+
+- **Database issues**
+  - Delete `innovation_hub.db` if schema changed and you want a clean slate.
+  - Ensure the app has write permissions in the project directory.
+
+- **Slow generations**
+  - Models may be large; consider a smaller model or running on a stronger machine.
+  - Reduce prompt size or number of artifacts per phase in `prompts.py` / `services.py`.
+
+```
+
+**D:\Projects\ai-innovation-hub-backend\README.md**
+```
+# AI Innovation Hub Backend
+
+FastAPI backend that transforms raw ideas into validated mini‑startup concepts using local LLMs (Llama 3.1 / Qwen2.5 Coder or similar models).
+
+This repository exposes the REST API used by the Next.js frontend.
+
+---
+
+## 1. Features
+
+- **6 Phases of Idea Development**
+  1. **Ideation** – Problem statement, personas, idea variants
+  2. **Concept Design** – Feature list, user flows
+  3. **Launch Content** – Landing page copy, pitch outline, taglines
+  4. **Validation** – Experiment plans, survey questions, metrics
+  5. **Tech Build** – Tech stack, API design, project tasks
+  6. **Final Spec** – Complete project specification
+
+- **LLM Orchestration**
+  - Primary model for product/business/UX content
+  - Optional coder model for tech‑heavy artifacts (stack, APIs, tasks)
+
+- **Persistence & Versioning**
+  - All phases and artifacts stored in SQLite via SQLModel
+  - Regeneration creates new **versions** per artifact type
+
+- **Export**
+  - Full project spec (all artifacts, latest versions) as Markdown / PDF / DOCX
+  - Final spec built from **user‑selected variants** + latest defaults for others
+
+For a deeper dive (env vars, architecture, endpoint details), see `BACKEND_DOCS.md`.
+
+---
+
+## 2. Prerequisites
+
+1. **Python 3.10+**
+2. **Ollama** running locally with models (default setup):
+   - `llama3.1` (primary model for product/business content)
+   - `qwen2.5-coder:7b` (optional, for code/tech content)
+
+### 2.1 Install Ollama Models
+
+```bash
+# Install Ollama from https://ollama.ai
+
+# Pull primary model (required)
+ollama pull llama3.1
+
+# Pull coder model (optional - for tech/code generation)
+ollama pull qwen2.5-coder:7b
+```
+
+---
+
+## 3. Configuration
+
+Copy `.env.example` to `.env` and edit as needed:
+
+```env
+# LLM Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+PRIMARY_MODEL=llama3.1
+CODER_MODEL=qwen2.5-coder:7b
+
+# Database
+DATABASE_URL=sqlite:///./innovation_hub.db
+
+# App Settings
+DEBUG=true
+```
+
+Variable meanings and more context are in `BACKEND_DOCS.md`.
+
+---
+
+## 4. Setup & Run
+
+### 4.1 Install Dependencies
+
+```bash
+cd D:\Projects\ai-innovation-hub-backend
+
+# Create virtual environment
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 4.2 Start LLM + API
+
+```bash
+# Terminal 1: start Ollama
+ollama serve
+
+# Terminal 2: start FastAPI
+cd D:\Projects\ai-innovation-hub-backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API will be available at:
+
+- Swagger UI: `http://localhost:8000/docs`
+- Root: `http://localhost:8000/`
+
+---
+
+## 5. Core Endpoints (Summary)
+
+### 5.1 Health
+
+```http
+GET /health
+```
+
+Check API and LLM status.
+
+### 5.2 Projects
+
+```http
+POST   /projects                    # Create new project
+GET    /projects                    # List all projects
+GET    /projects/{id}               # Get project with phases + artifacts
+DELETE /projects/{id}               # Delete project and related data
+```
+
+### 5.3 Phases & Generation
+
+```http
+GET  /projects/{id}/phases
+POST /projects/{id}/phases/{phase_type}/generate
+```
+
+`phase_type` ∈ {`ideation`, `concept_design`, `launch_content`, `validation`, `tech_build`, `final_spec`}.
+
+Example body:
+
+```json
+{
+  "regenerate": false,
+  "custom_instructions": "Focus on mobile-first approach"
+}
+```
+
+### 5.4 Artifacts
+
+```http
+GET /projects/{id}/artifacts   # List all artifacts for a project
+GET /artifacts/{id}            # Get a single artifact
+```
+
+### 5.5 Export
+
+- **Full spec (all artifacts, latest versions)**
+
+  ```http
+  GET /projects/{id}/export            # JSON { project_id, format, content }
+  GET /projects/{id}/export-file       # ?format=markdown|pdf|docx
+  ```
+
+- **Final spec (selected variants + latest defaults)**
+
+  ```http
+  POST /projects/{id}/export-custom
+  ```
+
+  Example body:
+
+  ```json
+  {
+    "artifact_ids": [12, 25, 37],
+    "format": "pdf"
+  }
+  ```
+
+---
+
+## 6. Project Structure
+
+```text
+ai-innovation-hub-backend/
+├── app/
+│   ├── __init__.py
+│   ├── config.py       # Settings and environment
+│   ├── database.py     # SQLite setup
+│   ├── models.py       # SQLModel database models
+│   ├── schemas.py      # Pydantic request/response schemas
+│   ├── llm.py          # LLM wrapper (Ollama / other provider)
+│   ├── prompts.py      # Phase-specific prompt templates
+│   ├── services.py     # Business logic (phase generation, exports)
+│   └── main.py         # FastAPI app and endpoints
+├── .env.example        # Sample env configuration
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 7. Notes & Next Steps
+
+- The backend is designed to be **resource‑aware**:
+  - Only one model is called per request.
+  - Coder model is used only for tech‑specific artifacts.
+- All state lives in SQLite; LLMs themselves are stateless.
+
+Possible future backend enhancements:
+
+1. Vector search (e.g. ChromaDB) for richer project context.
+2. Auth + multi‑user projects.
+3. Rate limiting and usage analytics.
+4. Pluggable LLM providers (OpenAI/Azure/Anthropic) via config only.
+
+```
+
+**D:\Projects\ai-innovation-hub-backend\app\llm.py**
+```
+import httpx
+from typing import Optional
+from .config import get_settings
+
+settings = get_settings()
+
+
+async def call_llm(
+    prompt: str,
+    model: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 4096
+) -> str:
+    """
+    Call local LLM via Ollama API.
+    Resource-efficient: only one model loaded at a time.
+    """
+    model = model or settings.primary_model
+    
+    messages = []
+    # Combine system prompt with user prompt since some models don't support system role
+    if system_prompt:
+        combined_prompt = f"{system_prompt}\n\n{prompt}"
+        messages.append({"role": "user", "content": combined_prompt})
+    else:
+        messages.append({"role": "user", "content": prompt})
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    }
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        try:
+            response = await client.post(
+                f"{settings.lm_studio_base_url}/chat/completions",
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except httpx.HTTPError as e:
+            raise Exception(f"LLM call failed: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Unexpected error calling LLM: {str(e)}")
+
+
+async def call_primary_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+    """Use primary model (Llama 3.1) for product/business content."""
+    return await call_llm(prompt, model=settings.primary_model, system_prompt=system_prompt)
+
+
+async def call_coder_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+    """Use coder model (Qwen2.5 Coder) for technical/code content."""
+    return await call_llm(prompt, model=settings.coder_model, system_prompt=system_prompt)
+
+
+async def check_ollama_status() -> dict:
+    """Check if Ollama is running and which models are available."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(f"{settings.ollama_base_url}/api/tags")
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return {
+                "status": "online",
+                "models": [m.get("name") for m in models],
+                "primary_model": settings.primary_model,
+                "coder_model": settings.coder_model
+            }
+        except Exception as e:
+            return {
+                "status": "offline",
+                "error": str(e),
+                "models": []
+            }
+
+```
+
+**D:\Projects\ai-innovation-hub-backend\app\main.py**
+```
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select
+from contextlib import asynccontextmanager
+from typing import List
+from io import BytesIO
+import re
+import textwrap
+
+from .database import create_db_and_tables, get_session
+from .models import Project, Phase, Artifact, PhaseType
+from .schemas import (
+    ProjectCreate, ProjectResponse, ProjectDetailResponse,
+    PhaseResponse, ArtifactResponse,
+    GenerateRequest, GenerateResponse,
+    ExportCustomRequest,
+)
+from .services import (
+    create_project_phases, generate_phase_artifacts,
+    get_phase_by_type, get_all_artifacts
+)
+from .llm import check_ollama_status
+
+
+# --- Markdown helpers for export formatting ---
+
+def build_project_markdown(session: Session, project_id: int) -> tuple[Project, str]:
+    """Build a single markdown document for a project and all its artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    artifacts = get_all_artifacts(session, project_id)
+
+    markdown = f"# {project.name}\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in artifacts:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    return project, markdown
+
+
+def clean_inline_markdown(text: str) -> str:
+    """Remove common inline markdown markers like **bold**, *italic*, `code`, and links.
+
+    This is intentionally simple but good enough for export formatting.
+    """
+    # Strip backticks used for inline code
+    text = text.replace("`", "")
+    # Bold/italic markers
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"__(.*?)__", r"\1", text)
+    text = re.sub(r"\*(.*?)\*", r"\1", text)
+    text = re.sub(r"_(.*?)_", r"\1", text)
+    # Links: [label](url) -> label
+    text = re.sub(r"\[(.*?)\]\([^)]+\)", r"\1", text)
+    return text
+
+
+def iter_markdown_blocks(markdown: str):
+    """Very small markdown-to-blocks helper for headings & bullets.
+
+    Yields (text, kind) where kind is one of: h1, h2, h3, bullet, paragraph, blank.
+    """
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip("\n")
+        if not line.strip():
+            yield "", "blank"
+            continue
+
+        if line.startswith("# "):
+            yield clean_inline_markdown(line[2:].strip()), "h1"
+        elif line.startswith("## "):
+            yield clean_inline_markdown(line[3:].strip()), "h2"
+        elif line.startswith("### "):
+            yield clean_inline_markdown(line[4:].strip()), "h3"
+        elif re.match(r"^\s*[-*+]\s+", line):
+            text = re.sub(r"^\s*[-*+]\s+", "", line).strip()
+            yield clean_inline_markdown(text), "bullet"
+        elif re.match(r"^\s*\d+\.\s+", line):
+            m = re.match(r"^\s*(\d+)\.\s+(.*)", line)
+            if m:
+                numeric = m.group(1)
+                body = m.group(2).strip()
+                yield clean_inline_markdown(f"{numeric}. {body}"), "bullet"
+            else:
+                yield clean_inline_markdown(line.strip()), "paragraph"
+        else:
+            yield clean_inline_markdown(line.strip()), "paragraph"
+
+
+def markdown_to_pdf(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to a simple but structured PDF (headings/bullets)."""
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import letter
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF export not available on server (missing reportlab dependency)",
+        )
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    x_margin = 72
+    y = height - 72
+    line_height = 16
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            # Add a little vertical space
+            y -= line_height // 2
+            continue
+
+        # Choose font based on block kind
+        if kind == "h1":
+            pdf.setFont("Helvetica-Bold", 18)
+            wrap_width = 60
+        elif kind == "h2":
+            pdf.setFont("Helvetica-Bold", 16)
+            wrap_width = 70
+        elif kind == "h3":
+            pdf.setFont("Helvetica-Bold", 14)
+            wrap_width = 80
+        else:
+            pdf.setFont("Helvetica", 11)
+            wrap_width = 95
+
+        prefix = ""
+        if kind == "bullet":
+            prefix = "• "
+
+        # Wrap long lines so they don't get cut off horizontally
+        wrapped_lines = textwrap.wrap(text, width=wrap_width) or [""]
+
+        for i, line in enumerate(wrapped_lines):
+            if y < 72:
+                pdf.showPage()
+                y = height - 72
+                # Re-apply font after new page
+                if kind == "h1":
+                    pdf.setFont("Helvetica-Bold", 18)
+                elif kind == "h2":
+                    pdf.setFont("Helvetica-Bold", 16)
+                elif kind == "h3":
+                    pdf.setFont("Helvetica-Bold", 14)
+                else:
+                    pdf.setFont("Helvetica", 11)
+
+            draw_text = f"{prefix}{line}" if i == 0 else f"  {line}" if kind == "bullet" else line
+            pdf.drawString(x_margin, y, draw_text[:1000])
+            y -= line_height
+
+    pdf.save()
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.pdf"',
+        },
+    )
+
+
+def markdown_to_docx(markdown: str, base_filename: str) -> StreamingResponse:
+    """Render markdown-ish text to DOCX with headings and bullet lists."""
+    try:
+        from docx import Document
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="DOCX export not available on server (missing python-docx dependency)",
+        )
+
+    document = Document()
+
+    for text, kind in iter_markdown_blocks(markdown):
+        if kind == "blank":
+            document.add_paragraph("")
+        elif kind == "h1":
+            document.add_heading(text, level=1)
+        elif kind == "h2":
+            document.add_heading(text, level=2)
+        elif kind == "h3":
+            document.add_heading(text, level=3)
+        elif kind == "bullet":
+            document.add_paragraph(text, style="List Bullet")
+        else:
+            document.add_paragraph(text)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{base_filename}.docx"',
+        },
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+
+app = FastAPI(
+    title="AI Innovation Hub",
+    description="Transform raw ideas into validated mini-startup concepts using local LLMs",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "AI Innovation Hub API",
+        "docs": "/docs",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    ollama_status = await check_ollama_status()
+    return {
+        "api": "healthy",
+        "llm": ollama_status
+    }
+
+
+# --- Project Endpoints ---
+
+@app.post("/projects", response_model=ProjectResponse)
+def create_project(
+    project_data: ProjectCreate,
+    session: Session = Depends(get_session)
+):
+    """Create a new project and initialize all phases."""
+    project = Project(**project_data.model_dump())
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    
+    # Create all phases for this project
+    create_project_phases(session, project)
+    
+    return project
+
+
+@app.get("/projects", response_model=List[ProjectResponse])
+def list_projects(session: Session = Depends(get_session)):
+    """List all projects."""
+    projects = session.exec(select(Project).order_by(Project.created_at.desc())).all()
+    return projects
+
+
+@app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
+def get_project(project_id: int, session: Session = Depends(get_session)):
+    """Get project with all phases and artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Load phases with artifacts
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact)
+            .where(Artifact.phase_id == phase.id)
+            .order_by(Artifact.artifact_type)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return ProjectDetailResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        user_type=project.user_type,
+        constraints=project.constraints,
+        skills=project.skills,
+        time_available=project.time_available,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        phases=phase_responses
+    )
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: int, session: Session = Depends(get_session)):
+    """Delete a project and all its phases/artifacts."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Delete artifacts first
+    phases = session.exec(select(Phase).where(Phase.project_id == project_id)).all()
+    for phase in phases:
+        artifacts = session.exec(select(Artifact).where(Artifact.phase_id == phase.id)).all()
+        for artifact in artifacts:
+            session.delete(artifact)
+        session.delete(phase)
+    
+    session.delete(project)
+    session.commit()
+    
+    return {"message": "Project deleted successfully"}
+
+
+# --- Phase Endpoints ---
+
+@app.get("/projects/{project_id}/phases", response_model=List[PhaseResponse])
+def list_phases(project_id: int, session: Session = Depends(get_session)):
+    """List all phases for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phases = session.exec(
+        select(Phase)
+        .where(Phase.project_id == project_id)
+        .order_by(Phase.phase_type)
+    ).all()
+    
+    phase_responses = []
+    for phase in phases:
+        artifacts = session.exec(
+            select(Artifact).where(Artifact.phase_id == phase.id)
+        ).all()
+        phase_responses.append(PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ))
+    
+    return phase_responses
+
+
+@app.post("/projects/{project_id}/phases/{phase_type}/generate", response_model=GenerateResponse)
+async def generate_phase(
+    project_id: int,
+    phase_type: PhaseType,
+    request: GenerateRequest = GenerateRequest(),
+    session: Session = Depends(get_session)
+):
+    """Generate artifacts for a specific phase using local LLM."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    phase = get_phase_by_type(session, project_id, phase_type)
+    if not phase:
+        raise HTTPException(status_code=404, detail="Phase not found")
+    
+    # Generate artifacts
+    artifacts = await generate_phase_artifacts(
+        session=session,
+        project=project,
+        phase=phase,
+        regenerate=request.regenerate,
+        custom_instructions=request.custom_instructions
+    )
+    
+    # Refresh phase to get updated status
+    session.refresh(phase)
+    
+    return GenerateResponse(
+        phase=PhaseResponse(
+            id=phase.id,
+            project_id=phase.project_id,
+            phase_type=phase.phase_type,
+            status=phase.status,
+            started_at=phase.started_at,
+            completed_at=phase.completed_at,
+            artifacts=[ArtifactResponse.model_validate(a) for a in artifacts]
+        ),
+        artifacts=[ArtifactResponse.model_validate(a) for a in artifacts],
+        message=f"Generated {len(artifacts)} artifacts for {phase_type.value} phase"
+    )
+
+
+# --- Artifact Endpoints ---
+
+@app.get("/projects/{project_id}/artifacts", response_model=List[ArtifactResponse])
+def list_artifacts(project_id: int, session: Session = Depends(get_session)):
+    """List all artifacts for a project."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifacts = get_all_artifacts(session, project_id)
+    return artifacts
+
+
+@app.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)
+def get_artifact(artifact_id: int, session: Session = Depends(get_session)):
+    """Get a specific artifact."""
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return artifact
+
+
+# --- Export Endpoints ---
+
+@app.get("/projects/{project_id}/export")
+def export_project(project_id: int, session: Session = Depends(get_session)):
+    """Export all project artifacts as a single markdown document.
+
+    This is primarily aimed at Notion-friendly markdown exports.
+    """
+    project, markdown = build_project_markdown(session, project_id)
+
+    return {
+        "project_id": project_id,
+        "format": "markdown",
+        "content": markdown,
+    }
+
+
+@app.get("/projects/{project_id}/export-file")
+def export_project_file(project_id: int, format: str = "pdf", session: Session = Depends(get_session)):
+    """Export full project spec as a downloadable file (markdown/PDF/DOCX)."""
+    project, markdown = build_project_markdown(session, project_id)
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_spec"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        buffer = BytesIO(markdown.encode("utf-8"))
+        buffer.seek(0)
+        return StreamingResponse(
+            buffer,
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_filename}.md"',
+            },
+        )
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.post("/projects/{project_id}/export-custom")
+def export_project_custom(
+    project_id: int,
+    request: ExportCustomRequest,
+    session: Session = Depends(get_session),
+):
+    """Export a "final" spec using selected variants where provided, and
+    latest versions for all other artifact types.
+
+    - request.artifact_ids: explicit overrides (usually one per artifact_type)
+    - all other artifact types: use the latest version available for that type
+    """
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all artifacts for this project (ordered by phase + type)
+    all_artifacts = get_all_artifacts(session, project_id)
+    if not all_artifacts:
+        raise HTTPException(status_code=400, detail="No artifacts found for this project")
+
+    override_ids = set(request.artifact_ids or [])
+
+    # Step 1: decide which artifact to use per artifact_type
+    chosen_by_type: dict[str, Artifact] = {}
+    override_types: set[str] = set()
+
+    for artifact in all_artifacts:
+        key = artifact.artifact_type.value
+
+        # If this artifact is explicitly selected, prefer it for this type
+        if artifact.id in override_ids:
+            chosen_by_type[key] = artifact
+            override_types.add(key)
+            continue
+
+        # If this type already has an override, skip other versions
+        if key in override_types:
+            continue
+
+        # For non-overridden types, keep the latest version
+        existing = chosen_by_type.get(key)
+        if existing is None or artifact.version > existing.version:
+            chosen_by_type[key] = artifact
+
+    # Step 2: build a list of chosen artifacts preserving phase/type ordering
+    chosen_ids = {a.id for a in chosen_by_type.values()}
+    ordered_chosen = [a for a in all_artifacts if a.id in chosen_ids]
+
+    # Build markdown similar to the full export, but only for the chosen artifacts
+    markdown = f"# {project.name} - Final Spec\n\n"
+    markdown += f"**Description:** {project.description}\n\n"
+    markdown += f"**User Type:** {project.user_type.value}\n"
+    markdown += f"**Constraints:** {project.constraints or 'None'}\n"
+    markdown += f"**Skills:** {project.skills or 'Not specified'}\n"
+    markdown += f"**Time Available:** {project.time_available or 'Not specified'}\n\n"
+    markdown += "---\n\n"
+
+    current_phase = None
+    for artifact in ordered_chosen:
+        phase = session.get(Phase, artifact.phase_id)
+        if phase and phase.phase_type != current_phase:
+            current_phase = phase.phase_type
+            markdown += f"## {current_phase.value.replace('_', ' ').title()}\n\n"
+
+        markdown += f"### {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})\n\n"
+        markdown += artifact.content + "\n\n"
+        markdown += "---\n\n"
+
+    safe_name = project.name.replace(" ", "_")
+    base_filename = f"{safe_name}_final_spec"
+
+    fmt = request.format.lower()
+
+    if fmt == "markdown":
+        return {
+            "project_id": project_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+
+@app.get("/artifacts/{artifact_id}/export")
+def export_artifact(artifact_id: int, format: str = "markdown", session: Session = Depends(get_session)):
+    """Export a single artifact in markdown, PDF, or DOCX format.
+
+    - markdown: JSON response with a markdown string (Notion-friendly)
+    - pdf:      application/pdf binary stream
+    - docx:     application/vnd.openxmlformats-officedocument.wordprocessingml.document binary stream
+    """
+    artifact = session.get(Artifact, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    phase = session.get(Phase, artifact.phase_id)
+    project = session.get(Project, phase.project_id) if phase else None
+
+    project_name = (project.name if project else "project").replace(" ", "_")
+    artifact_name = artifact.artifact_type.value.replace(" ", "_")
+    base_filename = f"{project_name}_{artifact_name}_v{artifact.version}"
+
+    header = f"{project.name if project else 'Project'} - {artifact.artifact_type.value.replace('_', ' ').title()} (v{artifact.version})"
+    markdown = f"# {header}\n\n{artifact.content}\n"
+
+    fmt = format.lower()
+
+    if fmt == "markdown":
+        return {
+            "artifact_id": artifact_id,
+            "format": "markdown",
+            "content": markdown,
+        }
+    if fmt == "pdf":
+        return markdown_to_pdf(markdown, base_filename)
+    if fmt == "docx":
+        return markdown_to_docx(markdown, base_filename)
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use 'markdown', 'pdf', or 'docx'.")
+
+```
+
+
+
+
+
+**Diff:**
+```diff
+--- \\?\D:\Projects\ai-innovation-hub-backend\.env.example
++++ \\?\D:\Projects\ai-innovation-hub-backend\.env.example
+@@ -1,7 +1,7 @@
+-# LLM Configuration
+-OLLAMA_BASE_URL=http://localhost:11434
+-PRIMARY_MODEL=llama3.1
+-CODER_MODEL=qwen2.5-coder:7b
++# LLM Configuration (LM Studio OpenAI-compatible server)
++LM_STUDIO_BASE_URL=http://localhost:1234/v1
++PRIMARY_MODEL=mistral-7b-instruct-v0.2
++CODER_MODEL=mistral-7b-instruct-v0.2
+ 
+ # Database
+ DATABASE_URL=sqlite:///./innovation_hub.db
+
+--- \\?\D:\Projects\ai-innovation-hub-backend\app\llm.py
++++ \\?\D:\Projects\ai-innovation-hub-backend\app\llm.py
+@@ -12,9 +12,9 @@
+     temperature: float = 0.7,
+     max_tokens: int = 4096
+ ) -> str:
+-    """
+-    Call local LLM via Ollama API.
+-    Resource-efficient: only one model loaded at a time.
++    """Call local LLM via LM Studio's OpenAI-compatible API.
++
++    Resource-efficient: only one model is used per request.
+     """
+     model = model or settings.primary_model
+     
+@@ -50,31 +50,33 @@
+ 
+ 
+ async def call_primary_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+-    """Use primary model (Llama 3.1) for product/business content."""
++    """Use primary model (e.g. mistral-7b-instruct-v0.2) for product/business content."""
+     return await call_llm(prompt, model=settings.primary_model, system_prompt=system_prompt)
+ 
+ 
+ async def call_coder_model(prompt: str, system_prompt: Optional[str] = None) -> str:
+-    """Use coder model (Qwen2.5 Coder) for technical/code content."""
++    """Use coder model for technical/code content (can be same as primary)."""
+     return await call_llm(prompt, model=settings.coder_model, system_prompt=system_prompt)
+ 
+ 
+-async def check_ollama_status() -> dict:
+-    """Check if Ollama is running and which models are available."""
++async def check_llm_status() -> dict:
++    """Check if the LM Studio OpenAI-compatible server is reachable and list models."""
+     async with httpx.AsyncClient(timeout=10.0) as client:
+         try:
+-            response = await client.get(f"{settings.ollama_base_url}/api/tags")
++            # LM Studio exposes an OpenAI-style /models endpoint
++            response = await client.get(f"{settings.lm_studio_base_url}/models")
+             response.raise_for_status()
+-            models = response.json().get("models", [])
++            data = response.json()
++            models = [m.get("id") for m in data.get("data", [])]
+             return {
+                 "status": "online",
+-                "models": [m.get("name") for m in models],
++                "models": models,
+                 "primary_model": settings.primary_model,
+-                "coder_model": settings.coder_model
++                "coder_model": settings.coder_model,
+             }
+         except Exception as e:
+             return {
+                 "status": "offline",
+                 "error": str(e),
+-                "models": []
++                "models": [],
+             }
+
+--- \\?\D:\Projects\ai-innovation-hub-backend\app\main.py
++++ \\?\D:\Projects\ai-innovation-hub-backend\app\main.py
+@@ -20,7 +20,7 @@
+     create_project_phases, generate_phase_artifacts,
+     get_phase_by_type, get_all_artifacts
+ )
+-from .llm import check_ollama_status
++from .llm import check_llm_status
+ 
+ 
+ # --- Markdown helpers for export formatting ---
+@@ -251,10 +251,10 @@
+ 
+ @app.get("/health")
+ async def health_check():
+-    ollama_status = await check_ollama_status()
++    llm_status = await check_llm_status()
+     return {
+         "api": "healthy",
+-        "llm": ollama_status
++        "llm": llm_status,
+     }
+ 
+ 
+
+```
+
+
+
+Great, using LM Studio with `mistral-7b-instruct-v0.2` actually matches how your backend is already wired.
+
+Here’s what’s now true / what you should do:
+
+---
+
+## 1. Backend is now explicitly LM Studio–oriented
+
+I updated the backend code and sample env so it aligns with LM Studio + Mistral:
+
+### 1.1 `.env.example` (backend)
+
+Located at `ai-innovation-hub-backend/.env.example`:
+
+```env
+# LLM Configuration (LM Studio OpenAI-compatible server)
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+PRIMARY_MODEL=mistral-7b-instruct-v0.2
+CODER_MODEL=mistral-7b-instruct-v0.2
+
+# Database
+DATABASE_URL=sqlite:///./innovation_hub.db
+
+# App Settings
+DEBUG=true
+```
+Action for you:
+
+- Copy this to `.env` in the backend root and adjust `LM_STUDIO_BASE_URL` if your LM Studio server URL/port is different.
+
+---
+
+## 2. LLM client now documented as LM Studio
+
+**File:** `app/llm.py`
+
+The client was already calling `settings.lm_studio_base_url` for `/chat/completions`. I only adjusted docs and health:
+
+- `call_llm` docstring now describes LM Studio’s OpenAI‑compatible API.
+- `call_primary_model` / `call_coder_model` docstrings updated to match your Mistral setup.
+- Health check now probes LM Studio instead of Ollama:
+
+```python
+async def check_llm_status() -> dict:
+    """Check if the LM Studio OpenAI-compatible server is reachable and list models."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # LM Studio exposes an OpenAI-style /models endpoint
+            response = await client.get(f"{settings.lm_studio_base_url}/models")
+            response.raise_for_status()
+            data = response.json()
+            models = [m.get("id") for m in data.get("data", [])]
+            return {
+                "status": "online",
+                "models": models,
+                "primary_model": settings.primary_model,
+                "coder_model": settings.coder_model,
+            }
+        except Exception as e:
+            return {
+                "status": "offline",
+                "error": str(e),
+                "models": [],
+            }
+```
+And `call_llm` itself:
+
+```python
+async def call_llm(...):
+    """Call local LLM via LM Studio's OpenAI-compatible API.
+
+    Resource-efficient: only one model is used per request.
+    """
+    ...
+    response = await client.post(
+        f"{settings.lm_studio_base_url}/chat/completions",
+        json=payload,
+    )
+```
+So as long as LM Studio’s server is running and exposes `/v1/chat/completions` and `/v1/models`, you’re good.
+
+---
+
+## 3. `/health` now checks LM Studio, not Ollama
+
+**File:** `app/main.py`
+
+- Import changed to:
+
+```python
+from .llm import check_llm_status
+```
+- Health endpoint:
+
+```python
+@app.get("/health")
+async def health_check():
+    llm_status = await check_llm_status()
+    return {
+        "api": "healthy",
+        "llm": llm_status,
+    }
+```
+This will hit `LM_STUDIO_BASE_URL + "/models"` and return a simple status + model list.
+
+---
+
+## 4. What you should configure in LM Studio
+
+In LM Studio:
+
+1. Download and enable the model: `mistral-7b-instruct-v0.2`.
+2. Turn on the **local server** (OpenAI‑compatible):
+   - Typically at `http://localhost:1234/v1` (adjust if you chose a different port).
+3. Make sure your `.env` matches:
+
+```env
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+PRIMARY_MODEL=mistral-7b-instruct-v0.2
+CODER_MODEL=mistral-7b-instruct-v0.2
+```
+If you later add a more coder‑focused model, just change `CODER_MODEL`.
+
+---
+
+## 5. Docs still mentioning Ollama
+
+- The main backend README and `BACKEND_DOCS.md` still reference Ollama in a few places.
+- Functionally, your setup is already LM Studio‑based; the code and `.env.example` now match your `mistral-7b-instruct-v0.2` setup.
+- If you’d like, I can next sweep those docs to replace the remaining “Ollama” text with a clean LM Studio–based explanation so everything is consistent.
