@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-container { max-width: 600px; margin: 0 auto; }
+        .test-button { background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px 0; }
+        .test-result { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; white-space: pre-wrap; }
+        .loading { color: #666; font-style: italic; }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🤖 AI Assistant Integration Test</h1>
+        
+        <button class="test-button" onclick="testAIAssistant()">Test AI Assistant</button>
+        <button class="test-button" onclick="testHealth()">Test Health</button>
+        <button class="test-button" onclick="testCapabilities()">Test Capabilities</button>
+        
+        <div id="result" class="test-result">Click a button to test the AI Assistant...</div>
+    </div>
+
+    <script>
+        async function testAIAssistant() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<span class="loading">🔄 Testing AI Assistant...</span>';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/ai-assistant/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: 'Hello! This is a test from the frontend integration test.'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `<span class="success">✅ AI Assistant Working!</span>\n\n<strong>Response:</strong>\n${data.message}\n\n<strong>Metadata:</strong>\n${JSON.stringify(data.metadata, null, 2)}`;
+                } else {
+                    resultDiv.innerHTML = `<span class="error">❌ AI Assistant Error:</span>\n${data.error || 'Unknown error'}`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Connection Error:</span>\n${error.message}`;
+            }
+        }
+        
+        async function testHealth() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<span class="loading">🔄 Testing Health...</span>';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/ai-assistant/health');
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `<span class="success">✅ Health Check Passed!</span>\n\n${JSON.stringify(data.health, null, 2)}`;
+                } else {
+                    resultDiv.innerHTML = `<span class="error">❌ Health Check Failed</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Health Check Error:</span>\n${error.message}`;
+            }
+        }
+        
+        async function testCapabilities() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<span class="loading">🔄 Testing Capabilities...</span>';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/ai-assistant/capabilities');
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `<span class="success">✅ Capabilities Retrieved!</span>\n\n<strong>Role:</strong> ${data.role}\n\n<strong>Features:</strong>\n${data.capabilities.features.join('\n')}\n\n<strong>Examples:</strong>\n${data.capabilities.examples.join('\n')}`;
+                } else {
+                    resultDiv.innerHTML = `<span class="error">❌ Capabilities Error</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Capabilities Error:</span>\n${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
