@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1765642943521,
+    "title": "AI Engineer",
+    "description": "Machine Learning and Data Science, helping them develop practical skills and real-world project experience to kickstart a successful career in AI and analytics.\nRole Overview\nAs an AI Engineer Intern, you will work on live AI projects involving data preprocessing, model training, and deployment.\nResponsibilities\n✅ Build and optimize ML models\n✅ Work with structured and unstructured datasets\n✅ Implement deep learning pipelines\nTools\nTensorFlow, PyTorch, Scikit-learn\nRequirements\nStrong fundamentals in ML and Python",
+    "company": "vvvv",
+    "location": "Visakhapatnam",
+    "salary": "200-600",
+    "jobType": "Part-time",
+    "postedAt": "2025-12-13T16:22:23.521Z"
+  },
+  {
+    "id": 1765642943522,
+    "title": "AI Engineer",
+    "description": "We are looking for an AI Engineer to design and deploy machine learning solutions for real-world business problems.\nResponsibilities\n✅ Develop ML and DL models\n✅ Build data pipelines\n✅ Perform feature engineering\nTools\nPython, PyTorch, Pandas, NumPy\nRequirements\nExperience with supervised and unsupervised learning",
+    "company": "NeuroTech Labs",
+    "location": "Hyderabad",
+    "salary": "6-10 LPA",
+    "jobType": "Full-time",
+    "postedAt": "2025-12-10T11:15:10.112Z"
+  },
+  {
+    "id": 1765642943523,
+    "title": "AI Engineer",
+    "description": "Join our AI team to build scalable machine learning systems and intelligent applications.\nResponsibilities\n✅ Train and evaluate ML models\n✅ Deploy models using APIs\n✅ Collaborate with data engineers\nTools\nPyTorch, FastAPI, Docker\nRequirements\nKnowledge of ML lifecycle and model deployment",
+    "company": "Cognify Systems",
+    "location": "Bangalore",
+    "salary": "8-14 LPA",
+    "jobType": "Full-time",
+    "postedAt": "2025-12-08T09:40:55.003Z"
+  }
+]

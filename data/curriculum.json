@@ -1,0 +1,47 @@
+{
+  "courses": [
+    {
+      "id": 1,
+      "courseName": "Generative AI",
+      "description": "Learn modern generative AI systems and RAG.",
+      "instructor": "Dr. Ananya Rao",
+      "duration": "8 weeks",
+      "level": "Advanced",
+      "enrolled": "2,987 students",
+      "modules": [
+        {
+          "id": 1,
+          "title": "Introduction to Generative AI",
+          "shortDescription": "GenAI basics.",
+          "duration": "1.5 hours",
+          "lessons": 7,
+          "fullDescription": "Text, image, and code generation."
+        },
+        {
+          "id": 2,
+          "title": "Web Development",
+          "shortDescription": "backend and frontend development.",
+          "duration": "2 hours",
+          "lessons": 9,
+          "fullDescription": "MERN Stack"
+        },
+        {
+          "id": 3,
+          "title": "Prompt Engineering",
+          "shortDescription": "Effective prompts.",
+          "duration": "1.5 hours",
+          "lessons": 6,
+          "fullDescription": "Zero-shot and few-shot prompting."
+        },
+        {
+          "id": 4,
+          "title": "RAG",
+          "shortDescription": "LLMs with external data.",
+          "duration": "2 hours",
+          "lessons": 8,
+          "fullDescription": "Vector databases and retrieval pipelines."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "team-40-backend",
+  "version": "1.0.0",
+  "description": "Backend API for curriculum gap analysis",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node jobs-api.js"
+  },
+  "keywords": ["api", "curriculum", "gap-analysis"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.2.1"
+  }
+}

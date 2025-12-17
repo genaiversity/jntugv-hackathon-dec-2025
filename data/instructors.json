@@ -1,0 +1,76 @@
+{
+  "instructors": [
+    {
+      "id": 1,
+      "name": "Alex Chen",
+      "title": "Senior Python Developer & AI Instructor",
+      "bio": "Alex Chen is a passionate Python expert with 10+ years of software development experience. Specialized in building scalable applications and mentoring developers worldwide. Alex has trained over 50,000 students in Python programming and software architecture.",
+      "image": "https://api.dicebear.com/7.x/avataaars/svg?seed=Alex",
+      "email": "alex.chen@academy.com",
+      "expertise": ["Python", "Software Architecture", "Clean Code", "Object-Oriented Programming"],
+      "rating": 4.9,
+      "reviews": 2847,
+      "students": "50K+",
+      "courses": ["Python Fundamentals"],
+      "social": {
+        "linkedin": "https://linkedin.com/in/alexchen",
+        "github": "https://github.com/alexchen",
+        "twitter": "https://twitter.com/alexchen"
+      }
+    },
+    {
+      "id": 2,
+      "name": "Dr. Maria Rodriguez",
+      "title": "Machine Learning Researcher & Data Science Expert",
+      "bio": "Dr. Maria Rodriguez holds a PhD in Computer Science with specialization in Machine Learning. She has published 30+ research papers and worked at leading tech companies. Maria is passionate about making ML accessible to everyone through practical, hands-on education.",
+      "image": "https://api.dicebear.com/7.x/avataaars/svg?seed=Maria",
+      "email": "maria.rodriguez@academy.com",
+      "expertise": ["Machine Learning", "Data Science", "Statistical Analysis", "scikit-learn"],
+      "rating": 4.95,
+      "reviews": 3124,
+      "students": "60K+",
+      "courses": ["Machine Learning Essentials"],
+      "social": {
+        "linkedin": "https://linkedin.com/in/mariarod",
+        "github": "https://github.com/mariarod",
+        "twitter": "https://twitter.com/mariarod"
+      }
+    },
+    {
+      "id": 3,
+      "name": "Prof. James Wilson",
+      "title": "Deep Learning & Neural Networks Specialist",
+      "bio": "Prof. James Wilson is a renowned deep learning expert with contributions to major neural network frameworks. He has 15+ years in academia and industry, focusing on computer vision and neural architecture design. James believes in learning through building real-world projects.",
+      "image": "https://api.dicebear.com/7.x/avataaars/svg?seed=James",
+      "email": "james.wilson@academy.com",
+      "expertise": ["Deep Learning", "TensorFlow", "PyTorch", "Computer Vision"],
+      "rating": 4.92,
+      "reviews": 2564,
+      "students": "45K+",
+      "courses": ["Deep Learning"],
+      "social": {
+        "linkedin": "https://linkedin.com/in/jameswilson",
+        "github": "https://github.com/jameswilson",
+        "twitter": "https://twitter.com/jameswilson"
+      }
+    },
+    {
+      "id": 4,
+      "name": "Dr. Sarah Patel",
+      "title": "Natural Language Processing & LLM Expert",
+      "bio": "Dr. Sarah Patel specializes in NLP and Large Language Models with experience at leading AI companies. She has contributed to multiple open-source NLP libraries and is an active researcher in transformer models. Sarah is dedicated to demystifying complex NLP concepts.",
+      "image": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah",
+      "email": "sarah.patel@academy.com",
+      "expertise": ["NLP", "Transformers", "LLMs", "Text Analysis", "BERT"],
+      "rating": 4.88,
+      "reviews": 2341,
+      "students": "38K+",
+      "courses": ["NLP"],
+      "social": {
+        "linkedin": "https://linkedin.com/in/sarahpatel",
+        "github": "https://github.com/sarahpatel",
+        "twitter": "https://twitter.com/sarahpatel"
+      }
+    }
+  ]
+}

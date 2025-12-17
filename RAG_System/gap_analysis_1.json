@@ -1,0 +1,46 @@
+{
+  "modulesToDelete": [
+    1,
+    3,
+    4
+  ],
+  "modulesToAdd": [
+    {
+      "title": "Python for Data Science",
+      "skills": [
+        "python",
+        "numpy",
+        "pandas"
+      ],
+      "reason": "Establishes foundational programming skills in Python and essential libraries for data manipulation and analysis, crucial for any machine learning workflow."
+    },
+    {
+      "title": "Fundamentals of Machine Learning",
+      "skills": [
+        "machine learning",
+        "data preprocessing",
+        "feature engineering",
+        "python"
+      ],
+      "reason": "Introduces core machine learning concepts, algorithms, and essential steps like data preprocessing and feature engineering, which are central to the job market skills."
+    },
+    {
+      "title": "Introduction to Deep Learning",
+      "skills": [
+        "deep learning",
+        "python"
+      ],
+      "reason": "Covers the principles of neural networks and deep learning architectures, a critical skill for advanced AI applications and explicitly listed in job market requirements."
+    },
+    {
+      "title": "ML Model Deployment",
+      "skills": [
+        "model deployment",
+        "docker",
+        "fastapi",
+        "python"
+      ],
+      "reason": "Teaches practical skills for deploying machine learning models into production using Docker for containerization and FastAPI for creating robust APIs, directly addressing key deployment skills."
+    }
+  ]
+}
