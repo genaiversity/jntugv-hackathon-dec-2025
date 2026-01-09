@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: edbridge-techsprint
+    env: static
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

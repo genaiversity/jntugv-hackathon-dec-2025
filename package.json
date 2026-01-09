@@ -1,0 +1,56 @@
+{
+  "name": "edubridge-local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "start": "node server.js",
+    "eval": "ts-node services/runEval.ts",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@google/genai": "^1.31.0",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0",
+    "axios": "^1.7.2",
+    "date-fns": "^3.0.0",
+    "face-api.js": "^0.20.0",
+    "js-tiktoken": "^1.0.11",
+    "lucide-react": "^0.555.0",
+    "ollama": "^0.6.3",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.4.449",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.5.1",
+    "tesseract.js": "^5.1.1",
+    "weaviate-ts-client": "^2.1.0"
+  },
+  "optionalDependencies": {
+    "dotenv": "^16.3.1",
+    "leven": "^3.1.0",
+    "zod": "^3.21.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2",
+    "vite": "^7.2.7",
+    "vitest": "^4.0.15"
+  }
+}

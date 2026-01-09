@@ -1,0 +1,4 @@
+[
+  { "id": "1", "input": "greet", "expected": "hello" },
+  { "id": "2", "input": "farewell", "expected": "goodbye" }
+]

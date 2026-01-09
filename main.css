@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colorful accents used by the app */
+:root{
+	--accent-1: linear-gradient(90deg,#fb7185 0%,#8b5cf6 50%,#06b6d4 100%);
+}
+
+.color-accent-bg {
+	background-image: var(--accent-1);
+}
+
+.custom-scrollbar::-webkit-scrollbar{height:8px;width:8px}
+.custom-scrollbar::-webkit-scrollbar-thumb{background:linear-gradient(180deg,#7c3aed,#06b6d4);border-radius:9999px}
+
+/* Soft rainbow shaded card used across the UI */
+.rainbow-card{position:relative;overflow:hidden}
+.rainbow-card::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.12;background:linear-gradient(90deg,rgba(249,115,22,0.12) 0%,rgba(236,72,153,0.12) 33%,rgba(124,58,237,0.12) 66%,rgba(14,165,233,0.12) 100%);filter:blur(12px);transform:scale(1.05)}
+.rainbow-card::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);mix-blend-mode:overlay}
+.rainbow-card .card-inner{position:relative;z-index:10}
+
+/* Apply soft rainbow shading to common card pattern: rounded-xl + p-6 */
+.rounded-xl.p-6{position:relative;overflow:hidden}
+.rounded-xl.p-6::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.10;background:linear-gradient(90deg,rgba(249,115,22,0.12) 0%,rgba(236,72,153,0.12) 33%,rgba(124,58,237,0.12) 66%,rgba(14,165,233,0.12) 100%);filter:blur(14px);transform:scale(1.02)}
+.rounded-xl.p-6::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);mix-blend-mode:overlay}
+.rounded-xl.p-6 > *{position:relative;z-index:10}
+
+
+

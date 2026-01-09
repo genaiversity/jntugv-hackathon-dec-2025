@@ -1,0 +1,8 @@
+{
+  "name": "EduBridge",
+  "description": "A comprehensive platform bridging the gap between engineering students and top MNC hiring trends using AI-driven analytics, mentorship, and project guidance.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}

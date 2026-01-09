@@ -1,0 +1,16 @@
+{
+  "folders": [
+    {
+      "path": "edubridge/edubridgee/EDUBRIDGE/edubridge"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/.git": false
+    },
+    "search.exclude": {
+      "**/node_modules": true
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "date": "2025-12-14T04:10:07.338Z",
+  "dataset": "C:\\Users\\poorv\\Downloads\\EDUBRIDGE CODE\\TEAM-94\\tests\\evals\\dataset.json",
+  "accuracy": 1,
+  "avgNormalizedLevenshtein": 1,
+  "results": [
+    {
+      "id": "1",
+      "input": "greet",
+      "expected": "hello",
+      "predicted": "hello",
+      "exactMatch": true,
+      "normalizedLevenshtein": 1
+    },
+    {
+      "id": "2",
+      "input": "farewell",
+      "expected": "goodbye",
+      "predicted": "goodbye",
+      "exactMatch": true,
+      "normalizedLevenshtein": 1
+    }
+  ]
+}

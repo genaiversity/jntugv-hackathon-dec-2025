@@ -1,0 +1,27 @@
+name: Evals
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 0 * * *' # nightly
+
+jobs:
+  run-evals:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ '20.19.0' ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install
+        run: npm ci
+      - name: Run evals
+        env:
+          EVAL_THRESHOLD: '0.8'
+        run: |
+          npm run eval
